@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MINI_C :: PARSE_TREE_VIEW</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    </head>
+<body>
+    <div class="crt-overlay" style="pointer-events: none;"></div>
+    
+    <header class="top-nav">
+        <h1><span>SYS//</span> PARSE_TREE_VISUALIZER</h1>
+        <div class="status-indicator"><div class="pulse-dot" style="background:var(--accent-blue)"></div><span style="color:var(--accent-blue)">VISUALIZATION_ACTIVE</span></div>
+    </header>
+
+    <main class="page-container">
+        <div class="action-bar">
+            <a href="/?run_id={{ run_id }}" class="cyber-button" style="text-decoration:none;">< RETURN_TO_DASHBOARD</a>
+            
+            <div class="ast-controls">
+                <select id="speed-control" class="cyber-button" onchange="updateSpeed()">
+                    <option value="1000">SPEED: 0.5x</option>
+                    <option value="500" selected>SPEED: 1.0x</option>
+                    <option value="150">SPEED: 3.0x</option>
+                    <option value="25">SPEED: MAX</option>
+                    <option value="0">INSTANT</option>
+                </select>
+                <button class="cyber-button" onclick="zoom(0.1)">ZOOM_IN [+]</button>
+                <button class="cyber-button" onclick="zoom(-0.1)">ZOOM_OUT [-]</button>
+                <button class="cyber-button" onclick="resetZoom()">RESET</button>
+                <span style="color:var(--accent-neon); margin-left: 20px; align-self: center; width: 120px;" id="anim-status">ANIMATING...</span>
+            </div>
+        </div>
+
+        <div class="ast-full-view" id="ast-container" data-total-steps="{{ total_steps }}" data-svg-url="{{ graph_url }}?t={{ run_id }}">
+            <!-- Inline SVG injected here -->
+        </div>
+    </main>
+
+    <script>
+        const container = document.getElementById('ast-container');
+        const totalSteps = parseInt(container.getAttribute('data-total-steps'), 10);
+        const svgUrl = container.getAttribute('data-svg-url');
+        const statusEl = document.getElementById('anim-status');
+        
+        let currentStep = 1;
+        let animInterval = null;
+        let currentSpeed = 500;
+
+        function startAnimation() {
+            if (animInterval) clearInterval(animInterval);
+            
+            if (currentSpeed === 0) {
+                // Instant override
+                for (let i = currentStep; i <= totalSteps; i++) {
+                    const el = document.getElementById('step_' + i);
+                    if(el) {
+                        el.style.transition = 'none';
+                        el.style.opacity = '1';
+                    }
+                }
+                currentStep = totalSteps + 1;
+                statusEl.innerText = "BUILD_COMPLETE";
+                statusEl.style.color = "var(--text-dim)";
+                return;
+            }
+
+            animInterval = setInterval(() => {
+                const el = document.getElementById('step_' + currentStep);
+                if(el) {
+                    el.style.transition = `opacity ${Math.min(currentSpeed / 1000, 0.4)}s ease-out`;
+                    el.style.opacity = '1';
+                }
+                currentStep++;
+                
+                if(currentStep > totalSteps) {
+                    clearInterval(animInterval);
+                    statusEl.innerText = "BUILD_COMPLETE";
+                    statusEl.style.color = "var(--text-dim)";
+                }
+            }, currentSpeed);
+        }
+
+        function updateSpeed() {
+            const select = document.getElementById('speed-control');
+            currentSpeed = parseInt(select.value, 10);
+            if (currentStep <= totalSteps) {
+                startAnimation();
+            }
+        }
+        
+        // Fetch the SVG and render inline
+        fetch(svgUrl)
+            .then(res => res.text())
+            .then(svgText => {
+                container.innerHTML = svgText;
+                
+                const svgEl = container.querySelector('svg');
+                if(!svgEl) return;
+                
+                svgEl.style.display = 'block';
+                // Inline filters can be applied via CSS rule dynamically
+                svgEl.id = 'tree-img-full';
+
+                // Initialize all step elements to opacity: 0
+                for(let i=1; i<=totalSteps; i++) {
+                    const el = document.getElementById('step_' + i);
+                    if(el) el.style.opacity = '0';
+                }
+                
+                startAnimation();
+            });
+
+        // --- Viewport Zoom & Pan Logic (Adapted for inline SVG) ---
+        let currentZoom = 1;
+        
+        function applyZoom() {
+            const target = document.getElementById('tree-img-full');
+            if(!target) return;
+            
+            if(!target.dataset.origW) {
+                target.dataset.origW = target.getAttribute('width').replace(/[^\d.-]/g, '');
+                target.dataset.origH = target.getAttribute('height').replace(/[^\d.-]/g, '');
+            }
+            const w = parseFloat(target.dataset.origW);
+            const h = parseFloat(target.dataset.origH);
+            
+            target.setAttribute('width', (w * currentZoom) + 'pt');
+            target.setAttribute('height', (h * currentZoom) + 'pt');
+        }
+
+        function zoom(amount) {
+            currentZoom += amount;
+            if (currentZoom < 0.2) currentZoom = 0.2;
+            if (currentZoom > 5) currentZoom = 5;
+            applyZoom();
+        }
+        
+        function resetZoom() {
+            currentZoom = 1;
+            applyZoom();
+        }
+
+        container.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                zoom(delta);
+            }
+            // If Ctrl is not pressed, let the browser handle standard scrolling natively
+        }, { passive: false });
+
+        let isDragging = false;
+        let startX, startY, scrollLeft, scrollTop;
+
+        container.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.pageX - container.offsetLeft;
+            startY = e.pageY - container.offsetTop;
+            scrollLeft = container.scrollLeft;
+            scrollTop = container.scrollTop;
+        });
+
+        window.addEventListener('mouseup', () => { isDragging = false; });
+
+        container.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const x = e.pageX - container.offsetLeft;
+            const y = e.pageY - container.offsetTop;
+            container.scrollLeft = scrollLeft - (x - startX);
+            container.scrollTop = scrollTop - (y - startY);
+        });
+    </script>
+</body>
+</html>

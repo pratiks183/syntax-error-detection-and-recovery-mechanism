@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MINI_C :: EDITOR DASHBOARD</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    </head>
+<body>
+    <div class="crt-overlay"></div>
+    <div class="noise-overlay"></div>
+
+    <header class="top-nav">
+        <h1><span>SYS//</span> COMPILATION_CONSOLE v2.5 [SPLIT_VIEW]</h1>
+        <div class="status-indicator">
+            <div class="pulse-dot" {% if data %}style="animation-duration: 3s"{% endif %}></div>
+            <span>{% if data %}PROCESSING_COMPLETE{% else %}AWAITING INPUT{% endif %}</span>
+        </div>
+    </header>
+
+    <main class="split-layout">
+        <!-- Left Column: Editor -->
+        <div class="panel-container">
+            <header class="panel-header" style="border-bottom: 2px solid var(--accent-neon);">
+                <h2>[01] SOURCE_INPUT_TERMINAL</h2>
+            </header>
+            <form id="compile-form" method="POST" action="/compile" class="editor-container">
+                <div style="flex-grow:1; position:relative;">
+                    <textarea id="source-editor" name="source">{{ source }}</textarea>
+                </div>
+                <div class="massive-btn-container">
+                    <button type="submit" class="cyber-button compile-btn-huge">
+                        <span class="btn-text">COMPILE_SEQUENCE_START ></span>
+                    </button>
+                </div>
+            </form>
+
+            {% if data and data.tokens %}
+            <section class="results-section" style="flex: 1; border-top: 2px solid var(--border-color); overflow: hidden; min-height: 0; display: flex; flex-direction: column;">
+                <header class="panel-header" style="border-bottom: 2px solid var(--border-color);">
+                    <h2>[02] TOKEN_STREAM</h2>
+                </header>
+                <div style="padding: 0; overflow-y: auto; flex-grow: 1; min-height: 0; position: relative;">
+                    <table class="token-table" style="margin-top: 0; border-top: 0;">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Lexeme</th>
+                          <th>Type</th>
+                          <th>Line</th>
+                          <th>Column</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for t in data.tokens %}
+                        <tr class="{% if t.corrected %}corrected{% endif %}">
+                          <td>{{ loop.index }}</td>
+                          <td>{{ t.lexeme }}</td>
+                          <td>{{ t.type.name }}</td>
+                          <td>{{ t.line }}</td>
+                          <td>{{ t.column }}</td>
+                          <td>
+                            {% if t.corrected %}
+                              Corrected
+                            {% else %}
+                              Normal
+                            {% endif %}
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                </div>
+            </section>
+            {% endif %}
+        </div>
+
+        <!-- Right Column: Results -->
+        <div class="results-grid">
+            {% if data %}
+                <!-- Diagnostics -->
+                <section class="results-section">
+                    <header class="panel-header">
+                        <h2>[03] SYSTEM_DIAGNOSTICS</h2>
+                        {% if data.errors|length == 0 %}
+                        <span class="badge ok">0 ERRORS</span>
+                        {% else %}
+                        <span class="badge err">{{ data.errors|length }} ERRORS</span>
+                        {% endif %}
+                    </header>
+                    <div class="terminal-box">
+                        {% if data.errors|length == 0 %}
+                        <div class="terminal-line system-msg" style="color: var(--accent-neon);">> COMPILE SUCCESSFUL. 0 ERRORS DETECTED.</div>
+                        {% else %}
+                            {% for err in data.errors %}
+                            <div class="terminal-line error">
+                                <strong>ERR_{{ loop.index }} [{{ err.type }}]</strong>: {{ err.message }} at L{{ err.line }}:C{{ err.column }}
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </section>
+
+                <!-- Corrected Source -->
+                {% if data.errors|length > 0 %}
+                <section class="results-section">
+                    <header class="panel-header">
+                        <h2>[04] CORRECTED_OUTPUT</h2>
+                    </header>
+                    <div class="terminal-box">
+                        <pre class="code-block">>{{ data.corrected_source }}<span class="blinking-cursor">_</span></pre>
+                    </div>
+                </section>
+                {% endif %}
+                
+                {% if data.graph_url %}
+                <div style="background: var(--panel-bg); padding: 15px; display: flex; flex-direction: column; gap: 10px; justify-content: center; align-items: center; grid-row: span 2;">
+                    <a href="/ast/{{ run_id }}" class="cyber-button" style="text-decoration:none; background: var(--accent-neon); color: #000; font-size: 1rem; padding: 10px 30px; text-align: center; width: 90%;">> AST_TREE <<</a>
+                    <a href="/semantic/{{ run_id }}" class="cyber-button" style="text-decoration:none; background: #0099ff; color: #000; font-size: 1rem; padding: 10px 30px; text-align: center; width: 90%;">> SEMANTIC_ANALYSIS <<</a>
+                </div>
+                {% endif %}
+            {% else %}
+                <section class="results-section" style="grid-row: 2 / span 2;">
+                    <div class="idle-state">NO_ACTIVE_PROCESS</div>
+                </section>
+            {% endif %}
+        </div>
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+    <script>
+        const editorEl = document.getElementById('source-editor');
+        const editor = CodeMirror.fromTextArea(editorEl, {
+            mode: 'text/x-csrc',
+            lineNumbers: true,
+            indentUnit: 4,
+            matchBrackets: true
+        });
+
+        // Add error highlighting safely mapped
+        const rawData = `{% if data and data.errors %}{{ data.errors|tojson|safe }}{% else %}[]{% endif %}`;
+        if (rawData !== '[]') {
+            try {
+                const parseErrors = JSON.parse(rawData);
+                parseErrors.forEach(err => {
+                    const cmLine = err.line - 1;
+                    const cmCol = Math.max(0, err.column - 1);
+                    editor.markText(
+                        {line: cmLine, ch: Math.max(0, cmCol - 1)}, 
+                        {line: cmLine, ch: cmCol + 1},
+                        {className: 'cm-error-mark'}
+                    );
+                });
+            } catch(e) {}
+        }
+
+        document.getElementById('compile-form').addEventListener('submit', function() {
+            this.querySelector('.btn-text').innerText = 'COMPILING...';
+            this.querySelector('.cyber-button').style.pointerEvents = 'none';
+        });
+    </script>
+</body>
+</html>
